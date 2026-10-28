@@ -1,0 +1,24 @@
+.venv/
+/data/
+__pycache__/
+*.pyc
+runs/
+.pytest_cache/
+*:Zone.Identifier
+catboost_info/
+.ruff_cache/
+# Internal notes, third-party paper copies and the earlier submission; not part of the public code.
+STATUS.md
+review/
+old paper/
+# Build outputs of the paper (tectonic paper/main.tex) and copies of figure files.
+paper/*.log
+paper/*.blg
+paper/*.aux
+paper/*.bbl
+paper/DescriptionTexts.txt
+paper/figures/architecture_src.pdf
+paper/figures/shap_ranking.png
+paper/figures/figure_data.json
+third_party/
+build/

@@ -1,0 +1,127 @@
+% Architecture of the framework (Fig. 1). Numbers come from data/processed/manifest.json and data/stage1/feature_ranking.json.
+% The last panel is a schematic: a burst of novel flows (coloured) in the stream of flows over time, which the correction
+% relabels with a known class and the detector with "unknown attack".
+% Lettering is 8 pt at the natural width of 432 pt, so about 6.4 pt at \textwidth (Springer proceedings guidelines: at least 6 pt).
+\begin{tikzpicture}[
+  x=1cm, y=1cm, font=\sffamily\fontsize{8}{9.6}\selectfont, text=ink, line cap=round, line join=round,
+  head/.style={font=\sffamily\bfseries\fontsize{8.5}{10}\selectfont, anchor=north west, inner sep=0pt},
+  sub/.style={font=\sffamily\fontsize{8}{9.6}\selectfont, text=muted, anchor=north west, inner sep=0pt},
+  label/.style={font=\sffamily\fontsize{8}{9.6}\selectfont, inner sep=0pt},
+  flow/.style={-{Stealth[length=4.6pt,width=4pt]}, line width=0.8pt, draw=ink},
+  wire/.style={line width=0.45pt, draw=muted},
+  flowlabel/.style={font=\sffamily\bfseries\fontsize{8}{9}\selectfont, inner sep=1pt, text=ink},
+]
+% panel: #1 left, #2 right, #3 tint, #4 accent
+\def\panel#1#2#3#4{%
+  \fill[#3, rounded corners=3pt] (#1,0.3) rectangle (#2,-2.62);
+  \fill[#4] (#1+0.12,0.3) rectangle (#2-0.12,0.25);}
+
+\panel{0}{1.9}{paper}{line}
+\panel{2.2}{4.3}{sonetint}{sone}
+\panel{4.6}{8.9}{stwotint}{stwo}
+\panel{9.2}{12.2}{sthreetint}{sthree}
+\panel{12.5}{15.1}{sfourtint}{sfour}
+
+\node[head] at (0.13,0.1) {Data};
+\node[sub] at (0.13,-0.24) {64 features};
+\node[head] at (2.33,0.1) {Stage 1};
+\node[sub] at (2.33,-0.24) {SHAP selection};
+\node[head] at (4.73,0.1) {Stage 2};
+\node[sub] at (4.73,-0.24) {robust VAE};
+\node[head] at (9.33,0.1) {Stage 3};
+\node[sub] at (9.33,-0.24) {CatBoost};
+\node[head] at (12.63,0.1) {Novel bursts};
+\node[sub] at (12.63,-0.24) {correction, detector};
+\node[label, text=muted, anchor=north west] at (12.63,-0.6) {known class or};
+\node[label, text=muted, anchor=north west] at (12.63,-0.88) {unknown attack};
+
+%---------------------------------------------------------------- data: stacked flow tables
+\begin{scope}[shift={(0.92,-1.6)}]
+  \foreach \o in {0.16,0.08} \draw[line, fill=white, line width=0.45pt, rounded corners=1pt] (-0.58+\o,-0.62+\o) rectangle (0.58+\o,0.62+\o);
+  \draw[line, fill=white, line width=0.5pt, rounded corners=1pt] (-0.58,-0.62) rectangle (0.58,0.62);
+  \fill[line!55!white] (-0.58,0.42) rectangle (0.58,0.62);
+  \foreach \yy in {0.22,0.02,-0.18,-0.38} \draw[line, line width=0.3pt] (-0.58,\yy) -- (0.58,\yy);
+  \foreach \xx in {-0.29,0.0,0.29} \draw[line, line width=0.3pt] (\xx,-0.62) -- (\xx,0.62);
+\end{scope}
+
+%---------------------------------------------------------------- stage 1: ranked mean |SHAP| with the 95 % cut
+\begin{scope}[shift={(2.42,-2.3)}]
+  \draw[line, line width=0.45pt] (-0.04,0) -- (1.7,0);
+  \foreach \h [count=\i] in {1.15,0.50,0.46,0.43,0.39,0.32,0.31,0.30,0.28,0.27,0.26,0.25,0.19,0.14,0.10,0.07,0.05} {
+    \pgfmathsetmacro{\xx}{(\i-1)*0.098}
+    \ifnum\i<14 \fill[sone, rounded corners=0.6pt] (\xx,0) rectangle ++(0.066,\h);
+    \else \fill[line, rounded corners=0.6pt] (\xx,0) rectangle ++(0.066,\h); \fi}
+  \draw[ink, line width=0.6pt] (1.258,-0.07) -- (1.258,0.92);
+  \node[label, font=\sffamily\bfseries\fontsize{8}{9}\selectfont, anchor=south] at (1.258,0.97) {95\,\%};
+\end{scope}
+
+%---------------------------------------------------------------- stage 2: product-of-experts VAE
+\begin{scope}[shift={(0,-1.45)}]
+  \foreach \yy [count=\i] in {0.66,0.40,0.14,-0.12,-0.38,-0.64} {
+    \ifnum\i=4
+      \draw[muted, densely dashed, line width=0.45pt, rounded corners=0.6pt] (4.78,\yy-0.085) rectangle ++(0.17,0.17);
+    \else
+      \draw[line, fill=white, line width=0.5pt, rounded corners=0.6pt] (4.78,\yy-0.085) rectangle ++(0.17,0.17);
+      \draw[wire] (4.95,\yy) -- (5.12,\yy);
+    \fi}
+  \fill[stwo!22!white] (5.12,0.76) -- (6.0,0.32) -- (6.0,-0.32) -- (5.12,-0.76) -- cycle;
+  \draw[stwo, line width=0.65pt] (5.12,0.76) -- (6.0,0.32) -- (6.0,-0.32) -- (5.12,-0.76) -- cycle;
+  \node[label, font=\sffamily\bfseries\fontsize{8}{9}\selectfont] at (5.5,0) {PoE};
+  \foreach \yy in {0.26,0.13,0,-0.13,-0.26} \fill[stwo] (6.27,\yy) circle (0.05);
+  \draw[wire] (6.0,0) -- (6.2,0);
+  \draw[wire] (6.34,0) -- (6.54,0);
+  \fill[stwo!22!white] (6.54,0.32) -- (7.42,0.76) -- (7.42,-0.76) -- (6.54,-0.32) -- cycle;
+  \draw[stwo, line width=0.65pt] (6.54,0.32) -- (7.42,0.76) -- (7.42,-0.76) -- (6.54,-0.32) -- cycle;
+  \draw[wire] (7.42,0) -- (7.56,0);
+  \begin{scope}[shift={(8.2,-0.5)}]
+    \fill[stwo!25!white, domain=-0.52:0.52, samples=90, smooth] (-0.52,0) -- plot (\x, {0.7/(1+(\x/0.1)^2)}) -- (0.52,0) -- cycle;
+    \draw[stwo, line width=0.85pt, domain=-0.52:0.52, samples=90, smooth] plot (\x, {0.7/(1+(\x/0.1)^2)});
+    \draw[muted, line width=0.5pt, densely dotted, domain=-0.34:0.34, samples=60, smooth] plot (\x, {0.7*exp(-(\x/0.1)^2/2)});
+    \draw[line, line width=0.45pt] (-0.54,0) -- (0.54,0);
+  \end{scope}
+  \node[label, anchor=north] at (5.5,-0.86) {encoder};
+  \node[label, anchor=north] at (6.27,-0.86) {$z$};
+  \node[label, anchor=north] at (6.98,-0.86) {decoder};
+  \node[label, anchor=north] at (8.2,-0.86) {Student-t};
+\end{scope}
+
+%---------------------------------------------------------------- stage 3: oblivious trees and class probabilities
+\begin{scope}[shift={(0,-1.5)}]
+  \foreach \cx in {9.55,10.3} {
+    \draw[wire] (\cx,0.36) -- (\cx-0.2,-0.04) (\cx,0.36) -- (\cx+0.2,-0.04);
+    \foreach \s in {-0.2,0.2} \draw[wire] (\cx+\s,-0.04) -- (\cx+\s-0.1,-0.44) (\cx+\s,-0.04) -- (\cx+\s+0.1,-0.44);
+    \fill[sthree] (\cx,0.36) circle (0.064);
+    \fill[sthree!70!black] (\cx-0.2,-0.04) circle (0.056) (\cx+0.2,-0.04) circle (0.056);
+    \foreach \l in {-0.3,-0.1,0.1,0.3} \draw[line, fill=white, line width=0.45pt] (\cx+\l-0.05,-0.495) rectangle ++(0.1,0.1);}
+  \node[label, text=muted] at (9.925,0.12) {+};
+  \draw[flow, line width=0.6pt] (10.68,-0.04) -- (10.98,-0.04);
+  \draw[line, line width=0.45pt] (11.06,-0.55) -- (12.02,-0.55);
+  \foreach \h [count=\i] in {0.82,0.08,0.05,0.03,0.12} {
+    \pgfmathsetmacro{\xx}{11.1+(\i-1)*0.18}
+    \ifnum\i=1 \fill[sthree, rounded corners=0.6pt] (\xx,-0.55) rectangle ++(0.12,\h);
+    \else \fill[line, rounded corners=0.6pt] (\xx,-0.55) rectangle ++(0.12,\h); \fi}
+  \node[label, anchor=north] at (11.54,-0.62) {classes};
+  \node[label, anchor=north] at (9.93,-0.62) {trees};
+\end{scope}
+
+%---------------------------------------------------------------- correction: a burst of novel flows in time takes the recent attack class
+\begin{scope}[shift={(12.68,-2.28)}]
+  \draw[line, line width=0.45pt] (0,0) -- (2.25,0);
+  \foreach \h [count=\i] in {1,1,2,1,1,1,4,6,7,6,5,1,1,2,1} {
+    \pgfmathsetmacro{\xx}{(\i-1)*0.15}
+    \foreach \k in {1,...,\h} {
+      \ifnum\i>6 \ifnum\i<12 \fill[sfour, rounded corners=0.4pt] (\xx,0.02+0.105*\k-0.105) rectangle ++(0.11,0.085);
+      \else \fill[line, rounded corners=0.4pt] (\xx,0.02+0.105*\k-0.105) rectangle ++(0.11,0.085); \fi
+      \else \fill[line, rounded corners=0.4pt] (\xx,0.02+0.105*\k-0.105) rectangle ++(0.11,0.085); \fi}}
+  \draw[ink, line width=0.5pt] (0.88,0.83) -- (0.88,0.88) -- (1.64,0.88) -- (1.64,0.83);
+  \node[label, anchor=south] at (1.26,0.9) {novel + burst};
+  \node[label, anchor=north] at (1.12,-0.07) {time};
+\end{scope}
+
+%---------------------------------------------------------------- flows between stages
+\draw[flow] (1.9,-1.45) -- node[flowlabel, above=2pt] {64} (2.2,-1.45);
+\draw[flow] (4.3,-1.45) -- node[flowlabel, above=2pt] {44} (4.6,-1.45);
+\draw[flow] (8.9,-1.45) -- node[flowlabel, above=2pt] {7} (9.2,-1.45);
+\draw[flow] (12.2,-1.45) -- node[flowlabel, above=2pt] {class} (12.5,-1.45);
+\draw[flow, densely dashed, line width=0.6pt] (6.75,-2.62) -- (6.75,-2.82) -- node[flowlabel, below=1pt] {NLL, $z$} (13.8,-2.82) -- (13.8,-2.62);
+\end{tikzpicture}

@@ -1,0 +1,273 @@
+\documentclass[runningheads,a4paper]{llncs}
+\usepackage[T1]{fontenc}
+\usepackage{newtxtext}
+\usepackage[varvw]{newtxmath}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{marvosym}
+\usepackage{cite}
+\usepackage[hidelinks]{hyperref}
+\renewcommand\UrlFont{\rmfamily}
+\urlstyle{rm}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcommand{\pmsd}[2]{#1\,$\pm$\,#2}
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\bottomfraction}{0.8}
+\renewcommand{\textfraction}{0.1}
+\renewcommand{\floatpagefraction}{0.85}
+\setcounter{topnumber}{3}
+\setcounter{totalnumber}{4}
+% Settings chosen on the inner split (Sect. 3.4); one place for each value.
+% The chosen settings (\topoweight, \cellwidth, \burstq, \windowsec, \supportq, \noveltyq) come from generated/numbers.tex.
+\input{generated/numbers}
+% \input is not expandable inside a tabular in the current LaTeX kernel; the TeX primitive is.
+\makeatletter\newcommand{\inputrows}[1]{\@@input generated/#1.tex }\makeatother
+
+\begin{document}
+
+\title{A Practical Hybrid Robust VAE-CatBoost Framework for Efficient Multiclass Network Intrusion Detection}
+\titlerunning{Hybrid Robust VAE-CatBoost Framework for Intrusion Detection}
+
+\author{Vihaan Ovalekar\textsuperscript{(\Letter)} \and Ojas Gore \and Yash Pradhan \and Ishan Tanawade \and Deepali Patil}
+\authorrunning{V. Ovalekar et al.}
+\institute{Department of Artificial Intelligence and Data Science, SVKM's Dwarkadas J. Sanghvi College of Engineering, Mumbai, India\\
+\email{vihaan.ovalekar@gmail.com, ojasgore2005@gmail.com, yashpradhan0712@gmail.com, ishanst995@gmail.com}}
+
+\maketitle
+
+\begin{abstract}
+Machine-learning intrusion detectors often report detection rates near 100\,\%, but random splits and shortcut features inflate such results, and the detectors miss attack families absent from training. We propose a hybrid framework in which a robust variational autoencoder (VAE), with a Student-t likelihood, missing-entry handling of undefined flow statistics and a topological loss, gives a CatBoost classifier its inputs and gives two streaming components their signals. From the reconstruction error and latent space of the VAE, a correction relabels bursts of novel flows with the dominant recent attack class, and a detector flags unseen attack families. On CSE-CIC-IDS2018 with a time-ordered hold-out and three seeds, the framework reaches a mean F1 of \pmsd{\OursMean}{\OursSd} over the four larger classes, against \pmsd{\RawMean}{\RawSd} for raw-feature CatBoost and \BestBaselineMean\ for the best of ten re-run methods. The gain comes from the correction on the VAE signals, which also lifts raw-feature CatBoost to \RawCorrMean. With the detector, trained on attacks of other days, the framework has the highest Youden's $J$ on left-out days (\JOursDays\ against at most \JBestDays), and the detector alone finds \DetectorAloneDetection\,\% of the flows of left-out families, against \RawDetectorDetection\,\% on raw features. The framework needs 0.05\,ms per flow on one CPU thread.
+
+\keywords{Intrusion detection \and Variational autoencoder \and Student-t likelihood \and CatBoost \and Novelty \and Unseen attack families}
+\end{abstract}
+
+%-------------------------------------------------------------------------
+\section{Introduction}
+
+Intrusion detection systems (IDS) that learn from network flows must handle class imbalance, heavy-tailed flow statistics and attacks that were absent from training. Hybrid pipelines of feature selection, autoencoders and gradient-boosted trees report recalls near 99\,\%~\cite{kang2022} and accuracies near 98\,\%~\cite{chen2025vae} on public flow datasets, but such numbers can be optimistic: random splits put flows of the same attack session into training and test data, identifier columns such as ports let a model learn the attack machines, and plain accuracy hides the small classes~\cite{arp2022,engelen2021,dhooge2022,flood2024}. Moreover, a classifier can only output the classes that it has seen, so its detection can collapse for a new attack family~\cite{ferreira2020,sakr2026}.
+
+This paper keeps the hybrid design but changes what the autoencoder is for. In our framework (Fig.~\ref{fig:architecture}), CatBoost with SHAP importance selects the features (Stage~1), a robust variational autoencoder (VAE) encodes them (Stage~2), and a CatBoost classifier predicts the class from the VAE outputs (Stage~3). The VAE outputs also show how unusual a flow is, and its latent space groups similar flows; Stage~3 uses these signals in a streaming correction and a detector of unseen attacks. We call Stages 1--3 without the detector \emph{the framework}, and write \emph{with the detector} when it is added. Our ablations show that this second role of the VAE carries the gain. Our contributions are:
+\begin{enumerate}
+\item A robust VAE for CICFlowMeter flow features, which treats undefined statistics as missing entries instead of zeros, models heavy tails with a Student-t likelihood, and adds a topological loss for latent neighbourhoods (Sect.~\ref{sec:method}).
+\item A streaming correction that relabels bursts of novel flows, and a monotone CatBoost detector of unseen families; both run online without host addresses (Sect.~\ref{sec:method}).
+\item An evaluation on CSE-CIC-IDS2018 on a hold-out, left-out days, leave-one-attack-out folds and a test day, against ten re-run methods, with ablations and CPU timing (Sect.~\ref{sec:experiments}).
+\end{enumerate}
+
+%-------------------------------------------------------------------------
+\section{Related Work}\label{sec:related}
+
+Detection varies widely, and can collapse, when the attack classes of the test data are absent from training~\cite{ferreira2020,sakr2026,verkerken2023,soltani2021}. Earlier hybrids feed autoencoder errors~\cite{kang2022} or VAE features~\cite{chen2025vae} to tree classifiers. Streaming detectors keep per-host statistics~\cite{mirsky2018}, score bursts of edges between hosts~\cite{bhatia2020} or classify windows of flows~\cite{manocchio2024}. Our streaming components instead count bursts in the latent space of the VAE, so they need no host addresses.
+
+%-------------------------------------------------------------------------
+\section{Proposed Framework}\label{sec:method}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/architecture.pdf}
+\Description{Diagram with five panels from left to right, joined by arrows labelled 64, 44, 7 and class. Data: a stack of flow tables with 64 features. Stage 1, SHAP selection: ranked importance bars, blue up to a vertical line marked 95 percent and grey after it. Stage 2, robust VAE: input boxes, one of them dashed, feed a trapezoid encoder labelled PoE, five latent units z, a trapezoid decoder, and a Student-t curve drawn over a dotted Gaussian. Stage 3, CatBoost: two symmetric trees added together, then five class-probability bars in which one bar is tall. Novel bursts, correction and detector, output known class or unknown attack: a row of small squares over time, in which a tall purple cluster in the middle is marked novel plus burst. A dashed arrow labelled NLL, z runs from the VAE to this panel.}
+\caption{Architecture of the framework: Stage~2 encodes the defined features with a product of per-feature experts (PoE; the expert of an undefined statistic, dashed, is left out). From the VAE NLL and the latent mean $z$, the correction relabels bursts of novel flows (marked novel + burst); the detector checks the remaining Benign flows. Both belong to Stage~3.}\label{fig:architecture}
+\end{figure}
+
+\subsection{Stage 1: CatBoost with SHAP Feature Selection}
+
+Stage~1 ranks the 64 candidate features by their mean absolute SHAP value~\cite{lundberg2017} over 20 CatBoost runs, each on a random 70\,\% of the features, and keeps the smallest top set that holds 95\,\% of the importance: 44 features on our data (Fig.~\ref{fig:shap}, Table~\ref{tab:settings}).
+
+\subsection{Stage 2: Robust Variational Autoencoder}
+
+Each part of our VAE~\cite{kingma2014} targets one property of flow statistics.
+
+\paragraph{Undefined Statistics.}
+CICFlowMeter writes 0 when it cannot compute a statistic~\cite{cicflowmeter}: for example, an inter-arrival time needs two packets and an idle time needs an idle period. A zero of this kind is not a measurement. In the training rows, \UndefinedIdleMax\,\% of the \emph{Idle Max} values and \UndefinedFlowIatStd\,\% of the \emph{Flow IAT Std} values are undefined. We mark these entries as missing ($b_j=0$) with rules from the CICFlowMeter source code. Each feature $j$ has its own small encoder, an expert, that maps $x_j$ to a Gaussian $\mathcal{N}(\mu_j,\sigma_j^2)$ over the latent vector $z\in\mathbb{R}^5$. The posterior is the product of the experts of the defined features and a standard normal prior expert~\cite{wu2018}: $\sigma^{-2}=1+\sum_j b_j\sigma_j^{-2}$ and $\mu=\sigma^{2}\sum_j b_j\sigma_j^{-2}\mu_j$. A missing feature thus has no effect on the posterior and adds no likelihood term~\cite{ma2019eddi,ivanov2019}.
+
+\paragraph{Heavy Tails.}
+In the training rows, flow durations span six orders of magnitude and forward packet counts four, and a Gaussian likelihood lets a few extreme flows dominate the loss. The decoder therefore gives each feature a Student-t likelihood with learned location, scale and degrees of freedom~\cite{takahashi2018}, whose negative log-likelihood we call $\ell_j$. A soft lower bound on the log scale prevents the scale from collapsing~\cite{rybkin2021}.
+
+\paragraph{Neighbourhoods.}
+The correction of Stage~3 counts flows in cells of the latent space, so similar flows must stay close after encoding. The VAE objective does not ensure this. We therefore add the 0-dimensional topological loss $\mathcal{L}_t$ of Moor et al.~\cite{moor2020}, which compares the minimum spanning trees of the inputs and of the posterior means within a batch.
+
+\paragraph{Objective.}
+To train the experts for incomplete rows, each batch also contains a second view $x_s$ of each row, in which a random subset $s$ of the defined features is kept~\cite{ma2019eddi,ivanov2019}. The VAE minimizes
+\begin{multline}
+\mathcal{L}=\sum_{v\in\{x,x_s\}}\Big(\mathbb{E}_{q(z\mid v)}\big[\textstyle\sum_j m^{v}_j\ell_j\big]+\beta\,\mathrm{KL}\big(q(z\mid v)\,\|\,p(z)\big)\Big)\\
++0.1\beta\,\mathrm{KL}\big(q(z\mid x_s)\,\|\,q(z\mid x)\big)+\gamma\mathcal{L}_t,
+\end{multline}
+where $m^v_j$ is 1 for the features that view $v$ contains, $p(z)=\mathcal{N}(0,I)$, and the third term makes the two views agree~\cite{sinha2021}. The weight is $\gamma=\topoweight$ (Sect.~\ref{sec:selection}).
+
+\subsection{Stage 3: Classification, Correction and Detection}
+
+\paragraph{Classifier.}
+For each flow, the VAE gives seven outputs: the five posterior means $\mu$, the KL term, and the reconstruction NLL at $z=\mu$, summed over the \AlwaysDefinedCount\ features that every flow defines, so that the sum has the same terms for every flow. A multiclass CatBoost classifier~\cite{prokhorenkova2018} with balanced class weights learns the class from these outputs, and Optuna~\cite{akiba2019} tunes it. The classifier knows only the training classes, so in the tests on unseen families we count any class other than Benign as an attack, as in the binary view of~\cite{ferreira2020}.
+
+\paragraph{Novel-Burst Correction.}
+A learned attack can return in a form that the classifier misses: the teardown flows of a Slowloris attack look Benign to the classifier, but they are unusual for the VAE and arrive in bursts. The correction finds such flows in three steps. First, a flow is \emph{novel} when its reconstruction NLL is above the $q_n$ quantile of the NLL of the Benign flows of a calibration day. Second, a flow is part of a \emph{burst} when many flows have recently arrived in its latent cell: after each latent axis is divided by its training SD, the cell is the grid cube of side $w$ that contains the posterior mean of the flow. We measure this with the MIDAS-R score~\cite{bhatia2020} and a threshold at its $q_b$ quantile on Benign training flows, with the latent cell in place of the host pair because the flow records carry no addresses. Third, a novel flow in a burst takes the attack class that the classifier predicted most often among all earlier flows of the last $W$ seconds of the day, if the count of that class passes a support threshold; otherwise its prediction stays. The calibration day contains none of the training attack classes, so every attack prediction on it is a false alarm, and the $q_s$ quantile of this count over its Benign flows sets the threshold. All quantities use only earlier flows, so the correction runs online. In the hold-out evaluation, the training flows of the same days are part of the stream; they count as Benign predictions, so that no training label adds attack support.
+
+\paragraph{Unseen-Attack Detector.}
+A flow of a new attack family that resembles no learned class stays Benign after the correction, so a second CatBoost model, the detector, checks every Benign flow. Its first input is the \emph{relative NLL}: the reconstruction NLL minus the running median NLL of the earlier non-burst flows of the same day, because days differ in their normal NLL level. The other four inputs are the KL term, the MIDAS-R score of the latent cell, the same score over novel flows only (relative NLL above its $q_n$ quantile on calibration-day Benign flows), and the share of novel flows among the flows of the cell in the last $W$ seconds. Each input is replaced by its percentile rank among Benign reference flows, so that days share one scale. Monotone constraints~\cite{incer2018} let a larger input only raise the attack score, so a more unusual flow never gets a lower score and the detector cannot learn a narrow value range of one training family.
+
+Its positives are labelled attacks of families that the encoding VAE and classifier never saw: the class left out in each leave-one-attack-out fold, encoded by the models of that fold, and the attacks of day 02-28 and of further capture days (Sect.~\ref{sec:protocol}). The negatives are one half of the Benign flows of these days and of the calibration day, and its cut-off gives 1\,\% false alarms on the other half. When we evaluate a left-out day or fold, that day with its families, or that fold class, is removed from the detector's training. A flow that it flags becomes an \emph{unknown attack}, a wrong class in the seen-class metrics.
+
+\subsection{Hyperparameter Selection}\label{sec:selection}
+
+No model weight or threshold is fitted on the hold-out or the test day. The topological weight $\gamma$ and the five correction settings are selected with seed~3 on an inner split, which holds out the latest 20\,\% of the training rows of each day and class. The weight $\gamma$ maximizes the mean per-class F1 with the correction at its start values. The correction settings are then set one at a time to maximize the mean attack-versus-Benign F1 on three leave-one-attack-out folds of the inner split. For the detector, the NLL is taken relative to either the median NLL of the calibration day or the running median of the day, and the inputs are one of five subsets; each configuration is validated by leaving out one further capture day or one fold at a time. The selected configuration, the running median with all five inputs, has the highest mean detection rate among those with at most 2\,\% mean false alarms. Table~\ref{tab:settings} lists the grids and the selected values.
+
+\begin{table}[t]
+\caption{Settings of the framework; Stage~3 values are search ranges of Optuna's TPE sampler.}\label{tab:settings}
+\centering\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{L{1.5cm}L{10.27cm}}
+\toprule
+Part & Settings \\
+\midrule
+Stage 1 & 20 CatBoost runs on random 70\,\% feature subsets and $\le$50{,}000 training rows per class, SHAP on 1{,}000 rows per class; 300 iterations, depth 6, learning rate 0.1, balanced class weights \\
+Stage 2 & all training rows; signed log, standardization on defined entries; 44 experts of 20 ReLU units, latent size 5; decoder 128 ReLU units, Student-t, soft bound $\log\hat\sigma\ge-6$, $\nu=1+\mathrm{softplus}$; $\beta=0.5$, consistency $0.1\beta$; second view: each defined feature kept with probability $1-\rho$, $\rho\sim U(0,0.7)$, and, in addition, the features removed that are undefined in a random other row of the batch; $\gamma\in\{0.1,0.3,1,3\}$, chosen $\gamma=\topoweight$, on 256 flows per batch, distances divided by their mean; Adam $8{\cdot}10^{-3}$, batch 32{,}768, $\le$1{,}000 epochs, learning rate halved after 3 flat epochs, stop after 10 epochs without a relative gain of $10^{-4}$ in the 02-28 ELBO \\
+Stage 3 & CatBoost, plain boosting, balanced weights; Optuna TPE, 20 trials (10 random); iterations 200--1000, depth 4--8, learning rate 0.01--0.3, L2 1--30 (both log scale); mean per-class F1 over 3 time-blocked folds of a 10\,\% sample per day and class (classes under 2{,}000 rows whole); same search for raw CatBoost; the repository gives the LightGBM and XGBoost search ranges \\
+Correction & grids, searched in this order from the start values in brackets (ties keep the start value): $w\in\{0.1,[0.2],0.5\}$, $q_b\in\{0.975,[0.99],0.995\}$, $W\in\{30,[60],120\}$\,s, $q_s\in\{0.975,[0.99],0.995\}$, $q_n\in\{0.90,0.95,[0.975],0.99\}$; chosen $w=\cellwidth$, $q_b=\burstq$, $W=\windowsec$\,s, $q_s=\supportq$, $q_n=\noveltyq$; latent axes divided by their training SD; MIDAS-R edge score only, decay 0.5~\cite{bhatia2020}, one-minute ticks; flows of the same second are not earlier than each other \\
+Detector & CatBoost, depth 2, 500 iterations, learning rate 0.1, monotone; rank references: relative NLL and KL of calibration-day Benign flows, stream inputs of Benign training flows; median NLL of a reservoir sample of $\le$20{,}000 earlier flows of the day with MIDAS-R below its 0.9 Benign training quantile, refreshed every 500 flows (calibration-day median for the first 1{,}000); $\le$200{,}000 negatives per day; 1\,\% false alarms \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%-------------------------------------------------------------------------
+\section{Experiments and Results}\label{sec:experiments}
+
+\subsection{Dataset and Protocol}\label{sec:protocol}
+
+We used the official CSV files of CSE-CIC-IDS2018~\cite{cic2018page,sharafaldin2018}. We corrected their timestamps, which CICFlowMeter writes on a 12-hour clock~\cite{cicflowmeter}, and removed rows with non-finite values. To avoid shortcuts, we dropped the timestamp~\cite{engelen2021,flood2024}, the destination port~\cite{dhooge2022} and three TCP header fields whose values identify the attacker machines on the training days (\emph{Init Fwd Win Byts}, \emph{Init Bwd Win Byts}, \emph{Fwd Seg Size Min}; similar shortcuts are reported in~\cite{flood2024,engelen2021}), together with \ConstantCount\ constant columns; 64 candidate features remain. We also removed duplicate rows, rows of other days that equal training rows, and label conflicts, that is, identical feature vectors with different labels. The conflicts include \FtpConflictRows\ FTP brute-force rows, in line with the failed FTP attack in~\cite{liu2022error}.
+
+Table~\ref{tab:data} shows the splits. The classes of the test day, 02-21, are absent from training, so this day tests unseen families. Its HOIC window contains a burst of \BurstRows\ Benign flows of one template; Liu et al.~\cite{liu2022error} report no label problem for HOIC apart from a time offset, so we kept these flows as Benign. Outside this burst, the day has only \TestBenignOutside\ Benign flows. The detector also trains on further capture days on which at least six hours each hold at least 1\,\% of the day's Benign flows; this rule excludes the truncated file of day 02-16. On day 02-20, we removed \MislabelledUdpRows\ UDP flows labelled LOIC-HTTP inside the LOIC-UDP window, because LOIC-UDP is a test-day class.
+
+\begin{table}[t]
+\caption{Data splits after cleaning: the hold-out contains the latest 20\,\% of each day and class.}\label{tab:data}
+\centering\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{L{3.25cm}L{1.6cm}L{6.35cm}}
+\toprule
+Split (use) & Day(s) & Rows (class counts) \\
+\midrule
+\inputrows{tab_data_rows}
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Metrics and Runs.}
+For seen classes, the main metric is the mean per-class F1 over the classes with at least 30 hold-out rows; FTP, with 8 rows, is reported separately. For unseen families, we report the detection rate (DR), the Benign false-positive rate (FPR), and Youden's $J=\mathrm{DR}-\mathrm{FPR}$. Each seed (3, 4, 5) retrains every model after Stage~1 and recomputes every threshold; Stage~1 runs once on the main split and once per fold. We report the mean and standard deviation (SD) over seeds and a paired bootstrap of the difference to raw CatBoost~\cite{koehn2004}. The VAEs and the PyTorch re-run methods were trained on an RTX 5080 Laptop GPU and the other models on an Intel Core Ultra 9 275HX CPU; the code repository gives the library versions, thread counts and the command for every table: \url{https://github.com/WinterBlossom0/IDS-VAE-and-Catboost}.
+
+\paragraph{Comparison Methods.}
+We re-ran ten methods from related work, the \emph{re-run methods}, on the same features, rows and seeds (Table~\ref{tab:baselines}), with balanced class weights or class-balanced batches and no oversampling. Each method predicts the same hold-out, test day and further days, and is retrained without the left-out class in each fold.
+
+\begin{table}[t]
+\caption{Re-run methods (top; Stage~1 features of the main split or fold; deviations from the source in italics; not given: absent from the source) and results of related work (bottom; other splits and metrics, so not comparable). LOAO: leave-one-attack-out}\label{tab:baselines}\label{tab:literature}
+\centering\scriptsize
+\setlength{\tabcolsep}{2.5pt}
+\begin{tabular}{L{2.4cm}L{9.2cm}}
+\toprule
+Method & Settings \\
+\midrule
+Random forest~\cite{sakr2026} & scikit-learn defaults, as the source; standardization; \emph{signed log, balanced class weights} \\
+MLP~\cite{ferreira2020} & 24 hidden units (WEKA rule of the source code); \emph{scikit-learn with early stopping, not WEKA} \\
+XGBoost~\cite{chen2016}, LightGBM~\cite{ke2017} & library defaults, signed log + standardization (XGBoost has no random step) \\
+IDAE-XG~\cite{kang2022} & as the source; top 22 Stage~1 features by random-forest rank and 20 autoencoder epochs (both not given); \emph{multiclass, binary in the source; no upsampling} \\
+CNN-1D~\cite{donoso2026} & as the source ($\le$20 epochs, patience 4); \emph{our split, stratified random split in the source} \\
+FlowTransformer~\cite{manocchio2024} & 8-flow windows of the day (source code), 2 decoder blocks, learning rate from the source grid; \emph{multiclass} \\
+TabM~\cite{gorishniy2025} & package defaults, settings of the source (patience 16); \emph{no tuning} \\
+FT-Transformer~\cite{gorishniy2021} & default configuration and optimizer (patience 16); \emph{no tuning, no ensemble} \\
+TabNet~\cite{zegarra2023} & Table~4 of the source, patience 20; learning rate 0.02 (library default; not given); \emph{no SMOTE} \\
+\midrule
+Work & Data; split; reported result \\
+\midrule
+Ferreira~\cite{ferreira2020} & CSE-CIC-IDS2018, train 02-16, test 02-21 (unseen classes); MLP TPR 0.898 on all test attacks; LOIC-UDP TPR 0 \\
+Sakr~\cite{sakr2026} & CSE-CIC-IDS2018, 9 days; random forest F1 0.957 (random split), 0.239 (LOAO mean) \\
+Verkerken~\cite{verkerken2023} & CIC-IDS2017 random split: 41 of 47 unknown flows detected; CSE-CIC-IDS2018 Infiltration recall 78.38\,\% \\
+Soltani~\cite{soltani2021} & CSE-CIC-IDS2018 packet bytes, one unknown label per run: its accuracy 35.47--72.16\,\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/shap_ranking.pdf}
+\Description{Three panels. Left: horizontal bars of mean absolute SHAP for the top 10 of 64 features; Fwd Header Len leads at 0.74, followed by Flow IAT Std, Pkt Len Max, Bwd Header Len and Bwd Pkts/s near 0.25 to 0.32 and the rest near 0.18 to 0.20. Right top: cumulative share of importance against feature rank, reaching 95 percent at rank 44, marked by a vertical line. Right bottom: mean absolute SHAP of all 64 features by rank; the 44 kept features are blue and the 20 dropped features are grey.}
+\caption{Stage 1 SHAP ranking: (a) mean $|$SHAP$|$ of the top 10 features over 20 runs; (b) cumulative share and importance of all 64 features (the 95\,\% rule keeps $k=44$). The rankings of two disjoint halves of the runs have Spearman correlation \StabilitySpearman\ and top-44 Jaccard index \StabilityJaccard.}\label{fig:shap}
+\end{figure}
+
+\subsection{Seen Classes: The Correction on VAE Signals Gives the Gain}
+
+We first ask whether Stage~2 and the correction improve on CatBoost with the same 44 features (raw CatBoost), on the four classes with at least 30 hold-out rows (Table~\ref{tab:main}). The framework reaches a mean per-class F1 of \pmsd{\OursMean}{\OursSd}, against \pmsd{\RawMean}{\RawSd} for raw CatBoost and \BestBaselineMean\ for the best re-run method. It is better than raw CatBoost in every seed, by \GainMin\ to \GainMax\ (paired bootstrap, 95\,\% intervals for seeds 3, 4 and 5: \BootstrapIntervals). With the detector, the F1 drops only to \pmsd{\DetectorMean}{\DetectorSd}; the detector labels about 1\,\% of the Benign hold-out flows as unknown attacks. Table~\ref{tab:perclass} shows that the gain comes from Slowloris. Raw CatBoost is better on FTP, with 8 hold-out rows, and thus over all five classes (\AllClassRaw\ against \AllClassOurs).
+
+The ablations in Table~\ref{tab:main} locate the gain. Without the correction, the VAE classifier scores below raw CatBoost (\NoCorrMean\ against \RawMean). The correction raises its Slowloris recall from \SlowRecallBase\ (not tabulated) to \SlowRecallCorr, and it lifts raw CatBoost to a mean F1 of \RawCorrMean\ as well, a tie with the framework within the seed spread. Raw CatBoost with the correction still runs the VAE for the NLL and the latent cells, relabels more Benign flows and is slower than the framework. The gain therefore comes from the correction, which needs the VAE signals, rather than from the VAE as a feature compressor. In line with this, a Gaussian likelihood, no topological loss, or the latent mean only each changes the F1 by at most \VaePartGap\ when the correction is present, within the seed spread; without the correction, the topological loss lowers the F1. LightGBM and XGBoost in Stage~3 reach the F1 of CatBoost with a lower balanced accuracy. Giving Stage~3 both the 44 raw features and the seven VAE outputs does not close the gap before the correction (\ConcatNoCorrMean\ against \RawMean) and matches the framework after it (\ConcatMean), but removes the FTP false alarms (FTP F1 \ConcatFtpScore\ against \OursFtpScore). 
+
+\paragraph{Inference Time.} \input{generated/timing}
+
+\begin{table}[t]
+\caption{Hold-out mean per-class F1 (classes $\ge$30 rows) per seed and mean $\pm$ SD, balanced accuracy (all classes), Benign hold-out flows relabelled (sum over seeds; with the detector: by the correction and the detector), and CPU ms per flow (batch 1, one thread, seed 3). With the correction, the framework has a higher mean F1 than raw CatBoost and each re-run method.}\label{tab:main}
+\centering\scriptsize
+\setlength{\tabcolsep}{2.2pt}
+\begin{tabular}{L{3.3cm}ccccccc}
+\toprule
+Configuration & Seed 3 & Seed 4 & Seed 5 & Mean F1 & Bal.\ acc. & Relab. & ms/flow \\
+\midrule
+\inputrows{tab_main_rows}
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\caption{Per-class hold-out results, mean over seeds 3--5, of the framework and raw CatBoost (top), and the confusion matrix of the framework, seed 3 (bottom; rows: true class)}\label{tab:perclass}\label{tab:confusion}
+\centering\scriptsize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lrcccccc}
+\toprule
+ & & \multicolumn{3}{c}{Ours (with correction)} & \multicolumn{3}{c}{Raw CatBoost (44 features)} \\
+\cmidrule(lr){3-5}\cmidrule(lr){6-8}
+Class & Rows & Precision & Recall & F1 & Precision & Recall & F1 \\
+\midrule
+\inputrows{tab_perclass_rows}
+\bottomrule
+\end{tabular}
+
+\smallskip
+\begin{tabular}{lrrrrr}
+\toprule
+True $\backslash$ predicted & Benign & GoldenEye & Slowloris & FTP & SSH \\
+\midrule
+\inputrows{tab_confusion_rows}
+\bottomrule
+\end{tabular}
+\end{table}
+
+\input{generated/featurecount}
+
+\subsection{Unseen Attack Families}\label{sec:unseen}
+\input{generated/detector_days}
+\input{generated/unseen}
+
+A deployed IDS will meet attack families that no stage has seen. Table~\ref{tab:detectordays} tests this in two ways: the detector alone on further capture days, each left out of its training together with its families, and the framework with the detector on the leave-one-attack-out folds. The detector mainly finds families whose flows arrive as bursts of novel flows. For LOIC-HTTP, it flags \LoicRequestDetection\,\% of the request flows (3 forward and 4 backward packets) but only \LoicNoReplyDetection\,\% of the connection attempts that receive no reply, and Infiltration stays mostly undetected. Its Benign FPR is above the 1\,\% target on 02-28 (2.42\,\%) and in all folds. The VAE inputs matter: a CatBoost detector on the 44 raw features, trained on the same rows with the same cut-off but without monotone constraints, flags on average only \RawDetectorDetection\,\% (depth 6) and \RawDetectorTwoDetection\,\% (depth 2) of the flows of each left-out family, against \DetectorAloneDetection\,\% for ours (mean of Table~\ref{tab:detectordays}a), so the labelled further days and the tree depth alone do not explain the detection. Averaged over day--family pairs, the framework with the detector detects \FrameworkDayDetection\,\% of the flows at a mean daily Benign FPR of \FrameworkDayFpr\,\%; its $J$, the mean over day--family pairs of the detection rate minus the FPR of that day, is \JOursDays.
+
+Table~\ref{tab:unseen} compares all methods by Youden's $J$. With the detector, the framework has the highest mean $J$ on the left-out days and in the folds, while its classifier alone scores like most re-run methods ($J$ \JClassifierDays\ on the left-out days). The test day shows the limit of the burst signal: 99.4\,\% of its Benign flows belong to one burst inside the HOIC window. The framework detects \TestUdpMean\,\% of the LOIC-UDP flows, but also flags \TestBurstFprMean\,\% of this Benign burst, which gets higher detector scores than the HOIC flows. Three re-run methods have a higher $J$ on LOIC-UDP, and no method has a positive $J$ on HOIC.
+
+\section{Discussion}\label{sec:discussion}
+
+The results support the design idea: the VAE is most useful through its reconstruction error and latent space, which let the correction recover known attacks in a new form and the detector find new families that arrive in bursts, where seen-class classifiers can fail~\cite{sakr2026,ferreira2020}. They also explain the failures: unusual Benign bursts look like attacks, attacks without bursts give no signal, and the correction assumes one dominant attack at a time.
+
+\paragraph{Limits.}
+The evidence comes from one dataset with known construction errors and label faults~\cite{engelen2021,liu2022error} and from three seeds. The detector uses attack labels of other days that the re-run methods lack; open-set detectors remain to be compared.
+
+%-------------------------------------------------------------------------
+\section{Conclusion}\label{sec:conclusion}
+
+We proposed a hybrid VAE-CatBoost framework in which a robust VAE serves a classifier and two streaming components. On CSE-CIC-IDS2018 with a time-ordered hold-out, the framework improves the mean per-class F1 of the four larger classes over raw CatBoost and ten re-run methods, and with the detector, trained on attacks of other days, it has the highest Youden's $J$ on left-out days and folds. The ablations show where the value of the VAE lies: its reconstruction error and latent cells drive the correction, which gives raw-feature and VAE-input classifiers the same F1, and the detector, which finds about seven times more flows of unseen families than a detector on raw features. Future work should separate unusual Benign bursts from attacks.
+
+\begin{credits}
+\subsubsection{Use of AI Tools.}
+Claude Code was used for the implementation of the code and for finding bugs.
+
+\subsubsection{\discintname}
+The authors have no competing interests to declare that are relevant to the content of this article.
+\end{credits}
+
+\bibliographystyle{splncs04u}
+\bibliography{refs}
+
+\end{document}

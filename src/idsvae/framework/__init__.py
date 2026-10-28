@@ -1,0 +1,1 @@
+"""The framework of the paper: Stage 1 (features.py), Stage 2 (vae.py), Stage 3 (classify.py) with the novel-burst correction (correction.py) and the unseen-attack detector (detector.py), and the trained pipeline as one ONNX Runtime graph (onnx_graph.py)."""

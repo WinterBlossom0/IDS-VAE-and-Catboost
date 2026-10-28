@@ -1,0 +1,34 @@
+\begin{table}[t]
+\caption{Attack families absent from all training labels, in \%, mean $\pm$ SD over seeds 3--5: (a) left-out days, DR and Benign FPR of the detector alone; (b) leave-one-attack-out folds, DR on days 02-14 and 02-15 after each step, and hold-out Benign FPR; with raw CatBoost as classifier (same correction and detector), the mean final DR is 0.01 to 1.67 points higher per fold.}\label{tab:detectordays}\label{tab:loo}
+\centering\scriptsize
+\setlength{\tabcolsep}{1.5pt}
+\renewcommand{\pmsd}[2]{#1$\pm$#2}
+\begin{minipage}[t]{0.4\textwidth}\centering
+(a) Left-out days\\[2pt]
+\begin{tabular}{llcc}
+\toprule
+Day & Family & DR & FPR \\
+\midrule
+02-28 & Infiltration & \pmsd{2.34}{1.83} & \pmsd{2.42}{0.23} \\
+02-20 & LOIC-HTTP & \pmsd{50.06}{0.12} & \pmsd{0.91}{0.16} \\
+02-22 & Web brute force & \pmsd{30.84}{21.21} & \pmsd{0.61}{0.06} \\
+ & SQL injection & \pmsd{13.04}{7.53} &  \\
+ & XSS & \pmsd{48.44}{17.61} &  \\
+03-01 & Infiltration & \pmsd{3.03}{0.71} & \pmsd{0.68}{0.01} \\
+03-02 & Bot & \pmsd{68.24}{2.06} & \pmsd{0.68}{0.04} \\
+\bottomrule
+\end{tabular}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.595\textwidth}\centering
+(b) Leave-one-attack-out folds\\[2pt]
+\begin{tabular}{lcccc}
+\toprule
+Removed class & Classifier & + corr. & + det. & FPR \\
+\midrule
+SSH-BruteForce & \pmsd{0.0007}{0.001} & \pmsd{0.0007}{0.001} & \pmsd{95.16}{5.02} & \pmsd{2.19}{1.21} \\
+DoS GoldenEye & \pmsd{0.11}{0.01} & \pmsd{11.96}{1.40} & \pmsd{58.19}{19.27} & \pmsd{1.68}{0.92} \\
+DoS Slowloris & \pmsd{53.01}{13.28} & \pmsd{71.09}{2.01} & \pmsd{87.43}{8.32} & \pmsd{2.03}{0.97} \\
+\bottomrule
+\end{tabular}
+\end{minipage}
+\end{table}

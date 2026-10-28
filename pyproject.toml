@@ -1,0 +1,47 @@
+[project]
+name = "idsvae"
+version = "0.1.0"
+description = "Robust VAE-CatBoost intrusion detection on CSE-CIC-IDS2018 (camera-ready experiments)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy",
+    "pandas",
+    "pyarrow",
+    "scipy",
+    "scikit-learn",
+    "catboost",
+    "lightgbm",
+    "xgboost",
+    "optuna",
+    "torch>=2.7",
+    "matplotlib",
+    "onnxruntime>=1.31.0",
+    "onnx>=1.23.2",
+    "tabm>=0.0.3",
+    "rtdl-revisiting-models>=0.0.2",
+    "pytorch-tabnet>=4.1.0",
+    "onnxmltools>=1.16.0",
+    "skl2onnx>=1.20.0",
+]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/idsvae"]
+
+# The RTX 5080 (Blackwell, sm_120) needs CUDA 12.8 wheels of PyTorch.
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

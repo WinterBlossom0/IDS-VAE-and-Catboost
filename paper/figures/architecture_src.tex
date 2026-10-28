@@ -1,0 +1,23 @@
+% Standalone source of Fig. 1; compile with: tectonic -X compile architecture_src.tex
+\documentclass[border=0.5pt]{standalone}
+\usepackage{fontspec}
+\setsansfont{texgyreheros}[Extension=.otf, UprightFont=*-regular, BoldFont=*-bold, ItalicFont=*-italic, BoldItalicFont=*-bolditalic]
+\usepackage{unicode-math}
+\setmathfont{texgyretermes-math.otf}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta}
+\definecolor{ink}{HTML}{2B2B29}
+\definecolor{muted}{HTML}{6B6A64}
+\definecolor{line}{HTML}{C9C8C1}
+\definecolor{paper}{HTML}{F5F5F2}
+\definecolor{sone}{HTML}{2A78D6}
+\definecolor{sonetint}{HTML}{EEF4FC}
+\definecolor{stwo}{HTML}{EB6834}
+\definecolor{stwotint}{HTML}{FDF0EA}
+\definecolor{sthree}{HTML}{1BAF7A}
+\definecolor{sthreetint}{HTML}{E8F7F1}
+\definecolor{sfour}{HTML}{7A5CC7}
+\definecolor{sfourtint}{HTML}{F2EEFB}
+\begin{document}
+\input{architecture.tex}
+\end{document}

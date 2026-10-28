@@ -1,0 +1,22 @@
+Table~\ref{tab:featurecount} measures F1 and cost with the $k$ most important features of Stage~1 (seed~3; $k=64$: all 79 columns minus the 15 dropped); for $k>10$, our F1 stays within 0.9870--0.9908, and $k\in\{23, 40, 64\}$ score above the $k=44$ of the 95\,\% rule.
+
+\begin{table}[t]
+\caption{Feature-count ablation (seed 3): hold-out mean per-class F1, VAE training time in s (one VAE at a time on the GPU) and inference time in ms per flow (batch 1, one thread, no detector, as Table~\ref{tab:main})}\label{tab:featurecount}
+\centering\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{rcccrcc}
+\toprule
+ & \multicolumn{3}{c}{F1} & & \multicolumn{2}{c}{ms per flow} \\
+\cmidrule(lr){2-4}\cmidrule(lr){6-7}
+$k$ & Ours & Raw & Raw + corr. & VAE (s) & Ours & Raw \\
+\midrule
+10 & 0.9738 & 0.9815 & 0.9881 & 141 & 0.046 & 0.017 \\
+15 & 0.9877 & 0.9792 & 0.9886 & 158 & 0.072 & 0.019 \\
+23 & 0.9908 & 0.9782 & 0.9895 & 273 & 0.051 & 0.015 \\
+30 & 0.9870 & 0.9799 & 0.9908 & 357 & 0.054 & 0.024 \\
+40 & 0.9902 & 0.9813 & 0.9911 & 302 & 0.061 & 0.019 \\
+\textbf{44} & 0.9883 & 0.9800 & 0.9911 & 317 & 0.044 & 0.018 \\
+64 & 0.9908 & 0.9805 & 0.9906 & 392 & 0.057 & 0.016 \\
+\bottomrule
+\end{tabular}
+\end{table}
