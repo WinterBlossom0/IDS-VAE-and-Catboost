@@ -10,7 +10,7 @@ import pandas as pd
 
 from idsvae import config, metrics
 from idsvae.data import extra_days, splits
-from idsvae.experiments import baselines, final_run, inner_selection
+from idsvae.experiments import baselines, equal_data, final_run, inner_selection
 from idsvae.framework import features, vae
 from idsvae.timing import python_parts
 
@@ -51,6 +51,9 @@ def read_json(path):
 
 
 UNSEEN_DIR = final_run.FINAL_DIR / "unseen"
+# Re-run methods given the further days and the detector's cut-off (experiments/equal_data.py), and an open-set detector.
+EQUAL_ROWS = (("Random forest$^+$", "random_forest"), ("MLP$^+$", "mlp"), ("XGBoost$^+$", "xgboost"), ("LightGBM$^+$", "lightgbm"),
+              ("IDAE-XG$^+$", "kang_idae_xg"), ("Isolation Forest$^+$~\\cite{liu2008}", "isolation_forest"))
 FAMILY_NAMES = {"Infilteration": "Infiltration", "DDoS attacks-LOIC-HTTP": "LOIC-HTTP", "Brute Force -Web": "Web brute force",
                 "Brute Force -XSS": "XSS", "SQL Injection": "SQL injection", "Bot": "Bot"}
 
@@ -237,7 +240,8 @@ INLINE_MACROS = ("OursMean", "RawMean", "OursSd", "RawSd", "GainMin", "GainMax",
                  "JUdpAboveCount", "JHoicAboveCount", "JHoicPositiveCount",
                  "RawDetectorTwoDetection", "RawDetectorTwoFpr", "TestFprOutside", "TestHoicDetection",
                  "LightgbmMean", "XgboostMean", "LightgbmBalanced", "XgboostBalanced", "OursBalanced",
-                 "NoTopoNoCorrMean", "JOursDaysRange", "JBestDaysRange")
+                 "NoTopoNoCorrMean", "JOursDaysRange", "JBestDaysRange", "JEqualBestDays", "JEqualBestDaysName",
+                 "JEqualBestFolds", "JEqualBestFoldsName", "JIsoDays", "JArmTopology", "JArmBase", "JOursDaysEqual", "JOursFoldsEqual")
 
 
 def test_score_macros(test_scores):
@@ -354,6 +358,7 @@ def numbers():
         macros["BestBaselineMean"] = f"{max(statistics.mean(value['macro_f1_min_support'] for value in values) for values in baseline_values):.3f}"
     macros.update(detector_macros())
     macros.update(youden_macros())
+    macros.update(equal_macros())
     intervals = [paired_bootstrap(seed) for seed in SEEDS]
     if all(intervals):
         macros["BootstrapIntervals"] = ", ".join(f"[{test['ci95_low']:.3f}, {test['ci95_high']:.3f}]" for test in intervals)
@@ -449,6 +454,9 @@ def unseen_section():
         return [None if result is None else result["test"] for result in (baseline_result(method, seed) for seed in SEEDS)]
     lines = []
     for label, days, folds, udp, hoic in youden_rows():
+        # The text gives the classifier-only J; the table keeps the framework with the detector.
+        if label == "Ours, classifier":
+            continue
         if label == BASELINE_ROWS[0][0]:
             lines.append(r"\midrule")
         reports = test_reports(label)
@@ -460,8 +468,17 @@ def unseen_section():
                   mean_percent(field("benign_fpr_outside_burst")), mean_percent(field("benign_fpr_burst"))]
         cells += [PENDING if value is None else signed(value) for value in (udp, hoic)]
         lines.append(f"{label} & " + " & ".join(cells) + r" \\")
+    seeds = equal_seeds()
+    if seeds:
+        lines.append(r"\midrule")
+        for label, days, folds, udp, hoic, reports in equal_rows(seeds):
+            def field(name, reports=reports):
+                return [report.get(name) for report in reports]
+            cells = [signed(days), signed(folds), mean_percent(field("detected::DDOS attack-LOIC-UDP")), mean_percent(field("detected::DDOS attack-HOIC")),
+                     mean_percent(field("benign_fpr_outside_burst")), mean_percent(field("benign_fpr_burst")), signed(udp), signed(hoic)]
+            lines.append(f"{label} & " + " & ".join(cells) + r" \\")
     text = r"""\begin{table}[t]
-\caption{Unseen attack families, in \%, mean over seeds 3--5: Youden's $J$ is the detection rate (DR) minus the Benign false-positive rate (FPR); a re-run method flags a flow whose argmax class is not Benign. Left-out days: mean over day and family; folds: mean over the three folds. Test day 02-21: DR, Benign FPR outside and inside the burst, and $J$ against all Benign flows.}\label{tab:unseen}
+\caption{Unseen attack families, in \%, mean over seeds 3--5: Youden's $J$ is the detection rate (DR) minus the Benign false-positive rate (FPR); a re-run method flags a flow whose argmax class is not Benign. $^+$: trained also on the further days and flagged at the detector's cut-off. Left-out days: mean over day and family; folds: mean over the three folds. Test day 02-21: DR, Benign FPR outside and inside the burst, and $J$ against all Benign flows.}\label{tab:unseen}
 \centering\scriptsize
 \setlength{\tabcolsep}{3pt}
 \begin{tabular}{L{2.6cm}cccccccc}
@@ -739,6 +756,63 @@ def youden_rows():
         tests = [test_youden(r["test"]) for r in results] if all(results) else None
         rows.append((label, percent(days), percent(folds), percent(None if tests is None else [t[0] for t in tests]), percent(None if tests is None else [t[1] for t in tests])))
     return rows
+
+
+def equal_result(method, seed, mode, target=""):
+    return read_json(equal_data.output_path(method, seed, mode, target))
+
+
+def equal_targets():
+    from idsvae.experiments import detector_runs
+    return [("day", day) for day in detector_runs.qualified_days()] + [("fold", left_out) for left_out in final_run.LEFT_OUT_CLASSES] + [("test", "")]
+
+
+def equal_seeds():
+    """Seeds with every equal-data result of every row."""
+    targets = equal_targets()
+    return [seed for seed in SEEDS if all(equal_result(method, seed, mode, target) for _, method in EQUAL_ROWS for mode, target in targets)]
+
+
+def equal_rows(seeds):
+    """(label, J left-out days, J folds, J test LOIC-UDP, J test HOIC, test reports) in %, mean over the given seeds."""
+    rows = []
+    for label, method in EQUAL_ROWS:
+        days = youden_of_day_reports([equal_result(method, seed, "day", day)["report"] for seed in seeds for mode, day in equal_targets() if mode == "day"])
+        folds = [result["left_out_detection"] - result["holdout_benign_false_alarms"]
+                 for result in (equal_result(method, seed, "fold", left_out) for seed in seeds for left_out in final_run.LEFT_OUT_CLASSES)]
+        reports = [equal_result(method, seed, "test")["report"] for seed in seeds]
+        tests = [test_youden(report) for report in reports]
+        rows.append((label, 100 * statistics.mean(days), 100 * statistics.mean(folds), 100 * statistics.mean(t[0] for t in tests),
+                     100 * statistics.mean(t[1] for t in tests), reports))
+    return rows
+
+
+def equal_macros():
+    """Best J of the equal-data rows on the left-out days and in the folds, the open-set J, and the detector J per VAE arm."""
+    macros = {}
+    seeds = equal_seeds()
+    if seeds:
+        rows = dict(zip((method for _, method in EQUAL_ROWS), equal_rows(seeds)))
+        # The text calls the best row a re-run method, so the open-set detector is left out of the maximum.
+        rerun_rows = [row for method, row in rows.items() if method not in equal_data.OPEN_SET_METHODS]
+        for column, name in ((1, "Days"), (2, "Folds")):
+            row = max(rerun_rows, key=lambda item: item[column])
+            macros[f"JEqualBest{name}Name"], macros[f"JEqualBest{name}"] = row[0].split("~")[0].replace("$^+$", ""), signed(row[column])
+        macros["JIsoDays"] = signed(rows["isolation_forest"][1])
+        # The framework with the detector on the same seeds as the equal-data rows.
+        days = dict(zip(SEEDS, day_youden_per_seed(None)))
+        reference = detector_choice()["novelty_reference"]
+        folds = [100 * (report[left_out]["detector"]["left_out_detection"] - report[left_out]["detector"]["holdout_benign_false_alarms"])
+                 for report in (read_json(UNSEEN_DIR / f"loo_topology_s{seed}_{reference}.json") for seed in seeds) for left_out in final_run.LEFT_OUT_CLASSES]
+        macros["JOursDaysEqual"] = signed(statistics.mean(days[seed] for seed in seeds))
+        macros["JOursFoldsEqual"] = signed(statistics.mean(folds))
+    choice = detector_choice()
+    arms = None if choice is None else read_json(UNSEEN_DIR / f"vae_arms_{choice['novelty_reference']}.json")
+    if arms is not None:
+        for arm, name in (("topology", "JArmTopology"), ("base", "JArmBase")):
+            if len(arms.get(arm, {})) == len(SEEDS):
+                macros[name] = signed(100 * statistics.mean(value["youden"] for value in arms[arm].values()))
+    return macros
 
 
 def signed(value):

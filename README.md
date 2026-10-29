@@ -43,6 +43,7 @@ scripts/run_data.sh                    # clean the data, make the splits, Stage 
 setsid scripts/run_final_pipeline.sh   # VAEs, classifiers, correction, ablations
 scripts/run_detector.sh                # unseen-attack detector
 scripts/run_baselines.sh               # the ten comparison methods
+scripts/run_equal_data.sh              # comparison methods given the detector's further days; detector per VAE
 scripts/run_timing.sh                  # CPU inference time (C++, about 1.5 h; needs g++)
 scripts/run_paper.sh                   # tables, numbers and figures of the paper
 ```
