@@ -1,0 +1,43 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage{newtxtext}
+\usepackage[margin=2.2cm]{geometry}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt}
+\newcommand{\point}[2]{\textbf{#1}\quad #2\par}
+
+\begin{document}
+
+{\large\textbf{Response to the Reviewers --- ICDEC-2026, Paper ID 6}}
+
+We thank both reviewers. The camera-ready version uses the Springer LNNS template and addresses every comment below. We also tightened the evaluation (time-ordered hold-out, shortcut features removed, three seeds), so the numbers differ from the submitted version.
+
+\section*{Reviewer 1}
+
+\point{Organisation.}{The paper is restructured, and the dataset is now part of the results section (Sect.~4.1).}
+
+\point{Table 1 not discussed.}{All tables and figures are now discussed in the text.}
+
+\point{Architecture diagram.}{Added as Fig.~1 and explained in Sect.~1 and~3.}
+
+\point{SHAP results and missing details.}{Fig.~2 and Sect.~3.1 show the SHAP ranking and how 44 features are kept. Table~1 lists all settings.}
+
+\point{Figure 3 vs.\ conclusion.}{The old figure is replaced. All numbers now come from the same results, so the text, tables and conclusion agree.}
+
+\point{Literature table.}{Table~3 compares related work, and ten of these methods are re-run on our data (Tables~4 and~8).}
+
+\section*{Reviewer 2}
+
+\point{1. Multiclass vs.\ unseen classes.}{Clarified in Sect.~3.3: the classifier is multiclass on the training classes, and for unseen families any non-Benign prediction counts as a detected attack. Unseen families are evaluated by detection rate and false-positive rate, not accuracy.}
+
+\point{2. ``Zero-day''.}{Replaced by ``unseen attack families'' throughout.}
+
+\point{3. More evidence.}{Added class counts (Table~2), per-class precision, recall and F1, balanced accuracy, ROC-AUC, PR-AUC and a confusion matrix (Table~5), and results over three seeds (Table~4).}
+
+\point{4. Feature-count ablation.}{Added as Table~6 for 10, 15, 23, 30, 40, 44 and all 64 usable features, with F1 and compute cost.}
+
+\point{5. Inference time.}{The protocol is now stated (Sect.~4.2): 100{,}000 flows, batch size 1, one CPU thread, full pipeline from features to label. It takes 0.05\,ms per flow.}
+
+\point{Typos and grammar.}{The paper is rewritten and proofread.}
+
+\end{document}
