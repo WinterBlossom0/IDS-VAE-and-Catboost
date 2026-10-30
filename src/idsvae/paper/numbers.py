@@ -687,10 +687,10 @@ def timing_section():
     hardware = report["cpu"].replace("(R)", "").replace("(TM)", "")
     # "C++ ONNX Runtime 1.31.0" -> "1.31"
     runtime_version = ".".join(report["runtime"].removeprefix(RUNTIME_PREFIX).split(".")[:2])
-    text = (rf"With the detector, the framework needs {time_text(framework)}\,ms per flow on one CPU thread, against {time_text(median_of('raw'))}\,ms for raw "
-            rf"CatBoost; its merged VAE and CatBoost graph takes {time_text(median_of('framework', 'model'))}\,ms "
-            rf"({time_text(median_of('framework_parts', 'vae') + median_of('framework_parts', 'classifier'))}\,ms as two graphs), the correction "
-            rf"{time_text(median_of('framework', 'rule'))}\,ms and the detector {time_text(median_of('framework', 'detector'))}\,ms. We timed each pipeline with a time in "
+    text = (rf"On a single CPU thread, end-to-end processing with the detector takes {time_text(framework)}\,ms per flow, compared to {time_text(median_of('raw'))}\,ms for raw "
+            rf"CatBoost: the fused VAE and CatBoost graph accounts for {time_text(median_of('framework', 'model'))}\,ms "
+            rf"({time_text(median_of('framework_parts', 'vae') + median_of('framework_parts', 'classifier'))}\,ms as two separate graphs), the correction takes "
+            rf"{time_text(median_of('framework', 'rule'))}\,ms, and the detector takes {time_text(median_of('framework', 'detector'))}\,ms. We timed each pipeline with a time in "
             rf"Table~\ref{{tab:main}} as ONNX Runtime {runtime_version} graphs and C++ code on one thread of an {hardware}, one flow per call from the extracted "
             rf"features to the final label, over the {thousands(python_parts.SAMPLE_COUNT)} consecutive flows in the middle of day 02-21 "
             rf"({window_composition(burst, other, attacks)}). Each time is the median of {sessions * per_session} passes; a full repeat gave the same order of the "
